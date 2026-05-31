@@ -99,16 +99,25 @@ class TaskViewModel(
             _contactFormState.value = FormState.Submitting
             try {
                 val response = Web3FormsClient.service.submitForm(
-                    accessKey = "c402fcce-5e4f-4c13-801e-7f0bf46c2989",
-                    name = name,
-                    email = email,
-                    message = message
+                    com.example.network.Web3FormsRequest(
+                        accessKey = "c402fcce-5e4f-4c13-801e-7f0bf46c2989",
+                        name = name,
+                        email = email,
+                        message = message
+                    )
                 )
                 if (response.isSuccessful && response.body()?.success == true) {
                     _contactFormState.value = FormState.Success("Message sent successfully!")
                 } else {
-                    val errMsg = response.body()?.message ?: "Web3Forms submission failed."
-                    _contactFormState.value = FormState.Error(errMsg)
+                    val errorString = response.errorBody()?.string()
+                    val fallbackMsg = response.body()?.message ?: "Web3Forms submission failed."
+                    val parsedMsg = if (errorString != null && errorString.contains("\"message\"")) {
+                        val regex = """"(?:message|msg)"\s*:\s*"([^"]+)"""".toRegex()
+                        regex.find(errorString)?.groupValues?.get(1) ?: fallbackMsg
+                    } else {
+                        fallbackMsg
+                    }
+                    _contactFormState.value = FormState.Error(parsedMsg)
                 }
             } catch (e: Exception) {
                 _contactFormState.value = FormState.Error("Failed to connect: ${e.localizedMessage}")
@@ -148,6 +157,38 @@ class TaskViewModel(
     fun updateTask(context: Context, task: Task) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.updateTask(task)
+            TaskWidgetProvider.triggerUpdate(context)
+        }
+    }
+
+    fun updateTaskComplete(
+        context: Context,
+        task: Task,
+        title: String,
+        description: String,
+        priority: Int,
+        dueDate: Long?,
+        reminderTime: Long?,
+        longTermGoalId: Int?
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            // Cancel old exact alarms
+            cancelAlarm(context, task.id)
+            
+            // Re-schedule alarm if setting an active reminder time
+            if (reminderTime != null && reminderTime > System.currentTimeMillis()) {
+                scheduleAlarm(context, task.id, title, description, reminderTime)
+            }
+
+            val updated = task.copy(
+                title = title,
+                description = description,
+                priority = priority,
+                dueDate = dueDate,
+                reminderTime = reminderTime,
+                longTermGoalId = longTermGoalId
+            )
+            repository.updateTask(updated)
             TaskWidgetProvider.triggerUpdate(context)
         }
     }
@@ -264,10 +305,35 @@ class TaskViewModel(
                 PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
             )
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, timeInMillis, pendingIntent)
+            // Trigger strictly 10 minutes earlier than the schedule target
+            val targetOffsetTime = timeInMillis - (10 * 60 * 1000)
+            val currentTime = System.currentTimeMillis()
+            val finalTriggerTime = if (targetOffsetTime > currentTime) {
+                targetOffsetTime
+            } else if (timeInMillis > currentTime) {
+                timeInMillis // Fallback to task's scheduled time if offset is in past but task time is future
             } else {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, timeInMillis, pendingIntent)
+                currentTime + 3000 // Trigger immediately (3 seconds in the future) if both are in the past
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    try {
+                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
+                    } catch (e: SecurityException) {
+                        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
+                    }
+                } else {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                try {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
+                } catch (e: SecurityException) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
+                }
+            } else {
+                alarmManager.set(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
             }
         } catch (e: Exception) {
             e.printStackTrace()

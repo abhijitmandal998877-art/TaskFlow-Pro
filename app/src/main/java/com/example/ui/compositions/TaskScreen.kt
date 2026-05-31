@@ -1,9 +1,7 @@
 package com.example.ui.compositions
 
-import android.app.AlarmManager
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -24,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -61,6 +60,13 @@ fun TaskScreen(
 
     var showAddTaskDialog by remember { mutableStateOf(false) }
     var priorityFilter by remember { mutableStateOf<Int?>(null) } // null = All, 0 = Low, 1 = Medium, 2 = High
+
+    // Deletion states for confirmation
+    var taskToDelete by remember { mutableStateOf<Task?>(null) }
+    var subtaskToDelete by remember { mutableStateOf<Subtask?>(null) }
+
+    // Task editing states
+    var taskToEdit by remember { mutableStateOf<Task?>(null) }
 
     // Fit tasks with priority levels locally
     val filteredTasks = remember(tasks, priorityFilter) {
@@ -156,79 +162,124 @@ fun TaskScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // -- INTEGRATED PROGRESS HUD CONTAINER CARD --
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+            // -- GRADIENT COMPANION WIDGET WITH AN ANIMATED TEDDY 🧸 --
+            val infiniteTransition = rememberInfiniteTransition(label = "teddy")
+            val scale by infiniteTransition.animateFloat(
+                initialValue = 0.95f,
+                targetValue = 1.05f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1200, easing = EaseInOutSine),
+                    repeatMode = RepeatMode.Reverse
                 ),
-                shape = RoundedCornerShape(20.dp)
+                label = "bounce"
+            )
+            val sway by infiniteTransition.animateFloat(
+                initialValue = -6f,
+                targetValue = 6f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1600, easing = EaseInOutSine),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "sway"
+            )
+
+            val teddyMessage = when {
+                totalCount == 0 -> "Hooray! 🧸 Workspace is clean. Let's schedule some priorities on our workspace!"
+                progressFraction == 1f -> "A perfect slate! 🎉 We synchronized all our targets successfully. Amazing!"
+                progressFraction >= 0.5f -> "More than half-way there! 🚀 We're making monumental, flow-state progress!"
+                else -> "We have met $completedCount milestone targets. Let's conquer the remaining pending ones! 💪"
+            }
+
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(4.dp, shape = RoundedCornerShape(24.dp)),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = Color.Transparent
+                ),
+                shape = RoundedCornerShape(24.dp)
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Orchestration Progress",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.secondary
+                                )
+                            )
                         )
-
-                        // iCloud status label
-                        Text(
-                            text = if (isSyncing) "Syncing..." else "Synced to iCloud",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
+                        .padding(16.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Teddy on the left side
                         Box(
                             modifier = Modifier
-                                .size(50.dp)
+                                .size(72.dp)
                                 .background(
-                                    MaterialTheme.colorScheme.surfaceVariant,
+                                    Color.White.copy(alpha = 0.15f),
                                     shape = CircleShape
-                                ),
+                                )
+                                .padding(8.dp)
+                                .graphicsLayer {
+                                    scaleX = scale
+                                    scaleY = scale
+                                    rotationZ = sway
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = "${(progressFraction * 100).roundToInt()}%",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "🧸",
+                                fontSize = 42.sp
                             )
                         }
 
                         Spacer(modifier = Modifier.width(16.dp))
 
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "$completedCount of $totalCount task milestones met.",
+                                text = "Teddy Companion Pro",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White.copy(alpha = 0.85f),
+                                letterSpacing = 0.5.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = teddyMessage,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = Color.White,
+                                lineHeight = 17.sp
                             )
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            LinearProgressIndicator(
-                                progress = { progressFraction },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp)),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            // Progress bar
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { progressFraction },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = Color.White,
+                                    trackColor = Color.White.copy(alpha = 0.25f)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "${(progressFraction * 100).roundToInt()}%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
                 }
@@ -353,7 +404,10 @@ fun TaskScreen(
                             isDragging = isDragging,
                             offsetY = offsetTransitionY,
                             dragModifier = dragModifier,
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            onEditClick = { taskToEdit = it },
+                            onDeleteClick = { taskToDelete = it },
+                            onDeleteSubtaskClick = { subtaskToDelete = it }
                         )
                     }
                 }
@@ -372,6 +426,72 @@ fun TaskScreen(
             }
         )
     }
+
+    // Edit task dialog
+    if (taskToEdit != null) {
+        EditTaskDialog(
+            task = taskToEdit!!,
+            goals = goals,
+            onDismiss = { taskToEdit = null },
+            onConfirm = { title, desc, prioCode, goalId, reminderMs ->
+                viewModel.updateTaskComplete(context, taskToEdit!!, title, desc, prioCode, null, reminderMs, goalId)
+                taskToEdit = null
+                Toast.makeText(context, "Priority milestone revised!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    // Task deletion confirmation alert
+    if (taskToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { taskToDelete = null },
+            title = { Text("Delete Workspace Milestone?", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete \"${taskToDelete?.title}\"? This action will remove all reminders and subtask items permanently.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        taskToDelete?.let { viewModel.deleteTask(context, it) }
+                        taskToDelete = null
+                        Toast.makeText(context, "Milestone deleted.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { taskToDelete = null }) {
+                    Text("Dismiss")
+                }
+            }
+        )
+    }
+
+    // Subtask deletion confirmation alert
+    if (subtaskToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { subtaskToDelete = null },
+            title = { Text("Delete Subtask Requirement?", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete \"${subtaskToDelete?.title}\" subtask?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        subtaskToDelete?.let { viewModel.deleteSubtask(it) }
+                        subtaskToDelete = null
+                        Toast.makeText(context, "Subtask removed.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { subtaskToDelete = null }) {
+                    Text("Dismiss")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -381,9 +501,12 @@ fun TaskFlowMilestoneCard(
     isDragging: Boolean,
     offsetY: Float,
     dragModifier: Modifier,
-    viewModel: TaskViewModel
+    viewModel: TaskViewModel,
+    onEditClick: (Task) -> Unit,
+    onDeleteClick: (Task) -> Unit,
+    onDeleteSubtaskClick: (Subtask) -> Unit
 ) {
-    val context = LocalContext.current
+    val cardContext = LocalContext.current
     var isSubtasksExpanded by remember { mutableStateOf(false) }
     var showAddSubtaskDialog by remember { mutableStateOf(false) }
 
@@ -419,7 +542,7 @@ fun TaskFlowMilestoneCard(
                 // Complete checkbox status indicator
                 IconButton(
                     onClick = {
-                        viewModel.toggleTaskCompletion(context, task)
+                        viewModel.toggleTaskCompletion(cardContext, task)
                     },
                     modifier = Modifier.size(36.dp)
                 ) {
@@ -491,7 +614,7 @@ fun TaskFlowMilestoneCard(
                             }
                         }
 
-                        // Reminder Alarm Alert label
+                        // Reminder Alarm Alert label (triggered 10-mins earlier)
                         if (task.reminderTime != null) {
                             val rStr = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(task.reminderTime))
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -515,12 +638,22 @@ fun TaskFlowMilestoneCard(
 
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // Drag indicator Handle + delete
+                // Action panel: Edit + Delete + Reorder handle
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = {
-                            viewModel.deleteTask(context, task)
-                        },
+                        onClick = { onEditClick(task) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Task milestone",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onDeleteClick(task) },
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(
@@ -544,7 +677,7 @@ fun TaskFlowMilestoneCard(
 
             // Expand Subtasks Area trigger row
             Spacer(modifier = Modifier.height(10.dp))
-            Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
             Row(
                 modifier = Modifier
@@ -623,7 +756,7 @@ fun TaskFlowMilestoneCard(
                                     modifier = Modifier.weight(1f)
                                 )
                                 IconButton(
-                                    onClick = { viewModel.deleteSubtask(sub) },
+                                    onClick = { onDeleteSubtaskClick(sub) },
                                     modifier = Modifier.size(24.dp)
                                 ) {
                                     Icon(
@@ -648,10 +781,204 @@ fun TaskFlowMilestoneCard(
                 viewModel.addSubtask(task.id, title)
                 showAddSubtaskDialog = false
                 isSubtasksExpanded = true
-                Toast.makeText(context, "Subtask scheduled!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(cardContext, "Subtask scheduled!", Toast.LENGTH_SHORT).show()
             }
         )
     }
+}
+
+@Composable
+fun EditTaskDialog(
+    task: Task,
+    goals: List<LongTermGoal>,
+    onDismiss: () -> Unit,
+    onConfirm: (title: String, desc: String, priorityCode: Int, goalId: Int?, reminderMs: Long?) -> Unit
+) {
+    var title by remember { mutableStateOf(task.title) }
+    var desc by remember { mutableStateOf(task.description) }
+    var priorityCode by remember { mutableStateOf(task.priority) }
+    var selectedGoalId by remember { mutableStateOf<Int?>(task.longTermGoalId) }
+    var reminderMs by remember { mutableStateOf<Long?>(task.reminderTime) }
+
+    val context = LocalContext.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "Revise Workspace Milestone",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Update Title") },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_task_title_update"),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = desc,
+                    onValueChange = { desc = it },
+                    label = { Text("Update Details") },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+
+                // Priority Selection
+                Text("Priority Level:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PriorityLevel.values().forEach { level ->
+                        val isSelected = priorityCode == level.code
+                        ElevatedButton(
+                            onClick = { priorityCode = level.code },
+                            colors = ButtonDefaults.elevatedButtonColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                            ),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text(level.label, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                // Goal Connection Selection
+                if (goals.isNotEmpty()) {
+                    Text("Connect to Long-term Goal:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    var expandedDropdown by remember { mutableStateOf(false) }
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { expandedDropdown = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = if (selectedGoalId != null) {
+                                    goals.find { it.id == selectedGoalId }?.title ?: "Select Goal"
+                                } else {
+                                    "No Linked Aspiration"
+                                },
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = expandedDropdown,
+                            onDismissRequest = { expandedDropdown = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("None") },
+                                onClick = {
+                                    selectedGoalId = null
+                                    expandedDropdown = false
+                                }
+                            )
+                            goals.forEach { g ->
+                                DropdownMenuItem(
+                                    text = { Text(g.title) },
+                                    onClick = {
+                                        selectedGoalId = g.id
+                                        expandedDropdown = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Alarm Clock Indicator
+                Text("Customizable Reminder Trigger:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            val now = Calendar.getInstance()
+                            DatePickerDialog(
+                                context,
+                                { _, year, month, day ->
+                                    val sel = Calendar.getInstance()
+                                    TimePickerDialog(
+                                        context,
+                                        { _, hour, minute ->
+                                            sel.set(year, month, day, hour, minute)
+                                            reminderMs = sel.timeInMillis
+                                        },
+                                        now.get(Calendar.HOUR_OF_DAY),
+                                        now.get(Calendar.MINUTE),
+                                        false
+                                    ).show()
+                                },
+                                now.get(Calendar.YEAR),
+                                now.get(Calendar.MONTH),
+                                now.get(Calendar.DAY_OF_MONTH)
+                            ).show()
+                        }
+                    ) {
+                        Icon(Icons.Default.Alarm, contentDescription = "Alarm trigger selector")
+                    }
+
+                    Text(
+                        text = if (reminderMs != null) {
+                            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(reminderMs!!))
+                        } else {
+                            "No alarm active"
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp)
+                    )
+
+                    if (reminderMs != null) {
+                        IconButton(onClick = { reminderMs = null }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Clear, contentDescription = "Cancel Reminder Alert", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        onConfirm(title, desc, priorityCode, selectedGoalId, reminderMs)
+                    }
+                },
+                enabled = title.isNotBlank(),
+                modifier = Modifier.testTag("dialog_task_update_confirm")
+            ) {
+                Text("Update")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss")
+            }
+        }
+    )
 }
 
 @Composable
@@ -670,7 +997,9 @@ fun AddSubtaskDialog(
                 onValueChange = { title = it },
                 label = { Text("Subtask Description") },
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth().testTag("dialog_subtask_input")
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("dialog_subtask_input")
             )
         },
         confirmButton = {
@@ -728,7 +1057,9 @@ fun AddTaskDialog(
                     onValueChange = { title = it },
                     label = { Text("Milestone Title (e.g. Design UI)") },
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("dialog_task_title_input"),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("dialog_task_title_input"),
                     singleLine = true
                 )
 
@@ -754,7 +1085,9 @@ fun AddTaskDialog(
                             colors = ButtonDefaults.elevatedButtonColors(
                                 containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
                             ),
-                            modifier = Modifier.weight(1f).testTag("dialog_prio_${level.label.lowercase()}"),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("dialog_prio_${level.label.lowercase()}"),
                             contentPadding = PaddingValues(horizontal = 4.dp)
                         ) {
                             Text(level.label, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -806,7 +1139,7 @@ fun AddTaskDialog(
                     }
                 }
 
-                // Customizable Reminder Picker Dialogue trigger
+                // Customizable Reminder Trigger Code
                 Text("Customizable Reminder Trigger:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -849,7 +1182,9 @@ fun AddTaskDialog(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f).padding(start = 12.dp)
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp)
                     )
 
                     if (reminderMs != null) {

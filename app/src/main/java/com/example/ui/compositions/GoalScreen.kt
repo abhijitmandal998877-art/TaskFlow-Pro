@@ -39,6 +39,7 @@ fun GoalScreen(
     val tasks by viewModel.tasks.collectAsStateWithLifecycle()
 
     var showAddGoalDialog by remember { mutableStateOf(false) }
+    var goalToDelete by remember { mutableStateOf<LongTermGoal?>(null) }
 
     Scaffold(
         modifier = modifier.testTag("goals_screen_root"),
@@ -128,7 +129,8 @@ fun GoalScreen(
                             totalCount = totalCount,
                             completedCount = completedCount,
                             fraction = fraction,
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            onDeleteClick = { goalToDelete = it }
                         )
                     }
                 }
@@ -146,6 +148,31 @@ fun GoalScreen(
             }
         )
     }
+
+    if (goalToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { goalToDelete = null },
+            title = { Text("Delete Aspiration Goal?", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to delete \"${goalToDelete?.title}\"? Locked-in milestone tasks will lose their connection to this goal.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        goalToDelete?.let { viewModel.deleteGoal(it) }
+                        goalToDelete = null
+                        Toast.makeText(context, "Aspiration deleted successfully.", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { goalToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -154,7 +181,8 @@ fun GoalCardItem(
     totalCount: Int,
     completedCount: Int,
     fraction: Float,
-    viewModel: TaskViewModel
+    viewModel: TaskViewModel,
+    onDeleteClick: (LongTermGoal) -> Unit
 ) {
     ElevatedCard(
         modifier = Modifier
@@ -232,7 +260,7 @@ fun GoalCardItem(
                 }
 
                 IconButton(
-                    onClick = { viewModel.deleteGoal(goal) },
+                    onClick = { onDeleteClick(goal) },
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
