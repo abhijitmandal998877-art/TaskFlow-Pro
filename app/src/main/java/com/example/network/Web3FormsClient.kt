@@ -24,7 +24,13 @@ data class Web3FormsRequest(
 )
 
 interface Web3FormsService {
-    @retrofit2.http.Headers("Content-Type: application/json", "Accept: application/json")
+    @retrofit2.http.Headers(
+        "Content-Type: application/json",
+        "Accept: application/json",
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Origin: https://web3forms.com",
+        "Referer: https://web3forms.com/"
+    )
     @POST("submit")
     suspend fun submitForm(
         @Body request: Web3FormsRequest
