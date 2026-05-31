@@ -76,7 +76,8 @@ class ReminderReceiver : BroadcastReceiver() {
                             .setContentText("\"$taskTitle\" starts in exactly 10 minutes! Get ready.")
                             .setPriority(NotificationCompat.PRIORITY_HIGH)
                             .setContentIntent(pendingIntent)
-                            .setAutoCancel(true)
+                            .setOngoing(true)
+                            .setAutoCancel(false)
 
                         NotificationManagerCompat.from(context).notify(taskId * 10 + 1, builder.build())
                     }
@@ -122,16 +123,23 @@ class ReminderReceiver : BroadcastReceiver() {
 
                         NotificationManagerCompat.from(context).notify(taskId * 10 + 2, builder.build())
 
-                        // Ring the alarm sound directly in the receiver for up to 12 seconds
+                        // Play custom synthesized alarm tune for exactly 5 seconds
                         try {
-                            val ringtone = RingtoneManager.getRingtone(context, alarmUri)
-                            if (ringtone != null) {
-                                ringtone.play()
-                                delay(12000)
-                                if (ringtone.isPlaying) {
-                                    ringtone.stop()
-                                }
+                            val toneGen = android.media.ToneGenerator(android.media.AudioManager.STREAM_ALARM, 100)
+                            val endTime = System.currentTimeMillis() + 5000
+                            val tones = intArrayOf(
+                                android.media.ToneGenerator.TONE_DTMF_1,
+                                android.media.ToneGenerator.TONE_DTMF_3,
+                                android.media.ToneGenerator.TONE_DTMF_5,
+                                android.media.ToneGenerator.TONE_DTMF_9
+                            )
+                            var idx = 0
+                            while (System.currentTimeMillis() < endTime) {
+                                toneGen.startTone(tones[idx % tones.size], 250)
+                                delay(450)
+                                idx++
                             }
+                            toneGen.release()
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
