@@ -24,6 +24,7 @@ data class Web3FormsRequest(
 )
 
 interface Web3FormsService {
+    @retrofit2.http.Headers("Content-Type: application/json", "Accept: application/json")
     @POST("submit")
     suspend fun submitForm(
         @Body request: Web3FormsRequest

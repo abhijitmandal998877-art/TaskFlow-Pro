@@ -146,9 +146,12 @@ class TaskViewModel(
             )
             val createdId = repository.insertTask(task)
             
-            // If reminders are set, register with AlarmManager
-            if (reminderTime != null && reminderTime > System.currentTimeMillis()) {
-                scheduleAlarm(context, createdId.toInt(), title, description, reminderTime)
+            // Send feedback notification immediately
+            sendInstantNotification(context, "New Milestone Scheduled! 🧸", "Successfully added \"$title\" to your active workspace.")
+
+            // If reminders are set, register with multi-level AlarmManager (Pre-alarm, exact, overdue)
+            if (reminderTime != null) {
+                scheduleAlarmsForTask(context, createdId.toInt(), title, description, reminderTime)
             }
             TaskWidgetProvider.triggerUpdate(context)
         }
@@ -175,9 +178,9 @@ class TaskViewModel(
             // Cancel old exact alarms
             cancelAlarm(context, task.id)
             
-            // Re-schedule alarm if setting an active reminder time
-            if (reminderTime != null && reminderTime > System.currentTimeMillis()) {
-                scheduleAlarm(context, task.id, title, description, reminderTime)
+            // Re-schedule alarms if setting an active reminder time
+            if (reminderTime != null) {
+                scheduleAlarmsForTask(context, task.id, title, description, reminderTime)
             }
 
             val updated = task.copy(
@@ -197,16 +200,25 @@ class TaskViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val updated = task.copy(isCompleted = !task.isCompleted)
             repository.updateTask(updated)
+            if (updated.isCompleted) {
+                cancelAlarm(context, task.id)
+                sendInstantNotification(context, "Milestone Accomplished! 🎉", "Fantastic! You completed: \"${task.title}\" 🧸")
+            } else {
+                task.reminderTime?.let { rTime ->
+                    if (rTime > System.currentTimeMillis()) {
+                        scheduleAlarmsForTask(context, task.id, task.title, task.description, rTime)
+                    }
+                }
+            }
             TaskWidgetProvider.triggerUpdate(context)
         }
     }
 
     fun updateTaskReminder(context: Context, task: Task, reminderTime: Long?) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (reminderTime == null) {
-                cancelAlarm(context, task.id)
-            } else if (reminderTime > System.currentTimeMillis()) {
-                scheduleAlarm(context, task.id, task.title, task.description, reminderTime)
+            cancelAlarm(context, task.id)
+            if (reminderTime != null) {
+                scheduleAlarmsForTask(context, task.id, task.title, task.description, reminderTime)
             }
             val updated = task.copy(reminderTime = reminderTime)
             repository.updateTask(updated)
@@ -290,53 +302,128 @@ class TaskViewModel(
     }
 
     // --- Alarm manager Scheduling helper ---
-    private fun scheduleAlarm(context: Context, taskId: Int, title: String, desc: String, timeInMillis: Long) {
+    private fun sendInstantNotification(context: Context, title: String, message: String) {
+        try {
+            val channelId = "taskflow_instant_channel"
+            val channelName = "Workspace Alerts"
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(channelId, channelName, android.app.NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "Instant feedback alerts"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+            
+            val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+            
+            androidx.core.app.NotificationManagerCompat.from(context).notify(System.currentTimeMillis().toInt(), builder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun scheduleAlarmsForTask(context: Context, taskId: Int, title: String, desc: String, timeInMillis: Long) {
         try {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(context, ReminderReceiver::class.java).apply {
-                putExtra("task_id", taskId)
-                putExtra("task_title", title)
-                putExtra("task_desc", desc)
-            }
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                taskId,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
-            )
-
-            // Trigger strictly 10 minutes earlier than the schedule target
-            val targetOffsetTime = timeInMillis - (10 * 60 * 1000)
             val currentTime = System.currentTimeMillis()
-            val finalTriggerTime = if (targetOffsetTime > currentTime) {
-                targetOffsetTime
-            } else if (timeInMillis > currentTime) {
-                timeInMillis // Fallback to task's scheduled time if offset is in past but task time is future
-            } else {
-                currentTime + 3000 // Trigger immediately (3 seconds in the future) if both are in the past
+
+            // 1. 10 Minutes Before Reminder (PRE_REMINDER)
+            val preReminderTime = timeInMillis - (10 * 60 * 1000)
+            if (preReminderTime > currentTime) {
+                val intent = Intent(context, ReminderReceiver::class.java).apply {
+                    putExtra("task_id", taskId)
+                    putExtra("task_title", title)
+                    putExtra("task_desc", desc)
+                    putExtra("alarm_type", "PRE_REMINDER")
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    taskId * 10 + 1,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                )
+                setExactAlarm(alarmManager, preReminderTime, pendingIntent)
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (alarmManager.canScheduleExactAlarms()) {
-                    try {
-                        alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
-                    } catch (e: SecurityException) {
-                        alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
-                    }
-                } else {
-                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
+            // 2. Exact Alarm Time (EXACT_ALARM)
+            if (timeInMillis > currentTime) {
+                val intent = Intent(context, ReminderReceiver::class.java).apply {
+                    putExtra("task_id", taskId)
+                    putExtra("task_title", title)
+                    putExtra("task_desc", desc)
+                    putExtra("alarm_type", "EXACT_ALARM")
                 }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                try {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
-                } catch (e: SecurityException) {
-                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
-                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    taskId * 10 + 2,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                )
+                setExactAlarm(alarmManager, timeInMillis, pendingIntent)
             } else {
-                alarmManager.set(AlarmManager.RTC_WAKEUP, finalTriggerTime, pendingIntent)
+                // If set time has already passed or is now, fallback to trigger exact alarm in 2 seconds for instant demonstration/testing
+                val intent = Intent(context, ReminderReceiver::class.java).apply {
+                    putExtra("task_id", taskId)
+                    putExtra("task_title", title)
+                    putExtra("task_desc", desc)
+                    putExtra("alarm_type", "EXACT_ALARM")
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    taskId * 10 + 2,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                )
+                setExactAlarm(alarmManager, currentTime + 2000, pendingIntent)
+            }
+
+            // 3. Forget Check (FORGOT_REMINDER - 15 minutes after task time)
+            val forgotTime = timeInMillis + (15 * 60 * 1000)
+            if (forgotTime > currentTime) {
+                val intent = Intent(context, ReminderReceiver::class.java).apply {
+                    putExtra("task_id", taskId)
+                    putExtra("task_title", title)
+                    putExtra("task_desc", desc)
+                    putExtra("alarm_type", "FORGOT_REMINDER")
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    taskId * 10 + 3,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                )
+                setExactAlarm(alarmManager, forgotTime, pendingIntent)
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    private fun setExactAlarm(alarmManager: AlarmManager, triggerTime: Long, pendingIntent: PendingIntent) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                try {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                } catch (e: SecurityException) {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+                }
+            } else {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+            } catch (e: SecurityException) {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
+            }
+        } else {
+            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
         }
     }
 
@@ -344,15 +431,18 @@ class TaskViewModel(
         try {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val intent = Intent(context, ReminderReceiver::class.java)
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                taskId,
-                intent,
-                PendingIntent.FLAG_NO_CREATE or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
-            )
-            if (pendingIntent != null) {
-                alarmManager.cancel(pendingIntent)
-                pendingIntent.cancel()
+            val suffixes = listOf(1, 2, 3)
+            for (suffix in suffixes) {
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    taskId * 10 + suffix,
+                    intent,
+                    PendingIntent.FLAG_NO_CREATE or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                )
+                if (pendingIntent != null) {
+                    alarmManager.cancel(pendingIntent)
+                    pendingIntent.cancel()
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
