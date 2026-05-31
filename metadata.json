@@ -1,0 +1,6 @@
+{
+  "name": "TaskFlow Pro",
+  "description": "An elegant personal task manager with beautiful animations, prioritization, subtasks, long-term goals, drag-and-drop, and developer support contact details powered by Web3Forms.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
